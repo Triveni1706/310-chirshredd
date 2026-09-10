@@ -5,10 +5,17 @@ import PageHero from '../components/PageHero.astro';
 import EmptyState from '../components/EmptyState.astro';
 import { getDatabase } from '../lib/db';
 import { getAllGames } from '../lib/games';
+import { getAllCategories } from '../lib/categories';
+import { getAllPublishers } from '../lib/publishers';
 
 export const prerender = true;
 
-const games = await getAllGames(getDatabase());
+const db = getDatabase();
+const [games, categories, publishers] = await Promise.all([
+  getAllGames(db),
+  getAllCategories(db),
+  getAllPublishers(db),
+]);
 ---
 
 <Layout title="Tailspin Toys - Crowdfunding your new favorite game!">
@@ -21,13 +28,103 @@ const games = await getAllGames(getDatabase());
     <div>
       <h2 class="text-2xl font-medium mb-6 text-slate-100">Featured Games</h2>
 
+      <form class="mb-8 rounded-xl border border-slate-700 bg-slate-800/60 p-6" data-testid="game-filters">
+        <fieldset>
+          <legend class="mb-4 text-lg font-medium text-slate-100">Filter games</legend>
+          <div class="grid gap-5 md:grid-cols-2">
+            <div>
+              <label for="category-filter" class="mb-2 block text-sm font-medium text-slate-200">
+                Categories
+              </label>
+              <select
+                id="category-filter"
+                name="categories"
+                multiple
+                size={Math.min(Math.max(categories.length, 2), 5)}
+                class="min-h-24 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                data-testid="category-filter"
+              >
+                {categories.map((category) => <option value={category.id}>{category.name}</option>)}
+              </select>
+              <p class="mt-2 text-sm text-slate-400">Select one or more categories.</p>
+            </div>
+
+            <div>
+              <label for="publisher-filter" class="mb-2 block text-sm font-medium text-slate-200">
+                Publisher
+              </label>
+              <select
+                id="publisher-filter"
+                name="publisher"
+                class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                data-testid="publisher-filter"
+              >
+                <option value="">All publishers</option>
+                {publishers.map((publisher) => <option value={publisher.id}>{publisher.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <button
+            type="reset"
+            class="mt-5 rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            data-testid="clear-filters"
+          >
+            Clear filters
+          </button>
+          <p class="mt-4 text-sm text-slate-300" role="status" aria-live="polite" data-testid="filter-status"></p>
+        </fieldset>
+      </form>
+
       {games.length === 0 ? (
         <EmptyState text="No games available at the moment." />
       ) : (
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="games-grid">
-          {games.map((game) => <GameCard game={game} />)}
-        </div>
+        <>
+          <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3" data-testid="games-grid">
+            {games.map((game) => <GameCard game={game} />)}
+          </div>
+          <div class="hidden" data-testid="filtered-empty-state">
+            <EmptyState text="No games match the selected filters." />
+          </div>
+        </>
       )}
+      <script>
+        const form = document.querySelector<HTMLFormElement>('[data-testid="game-filters"]');
+        const categoryFilter = document.querySelector<HTMLSelectElement>('[data-testid="category-filter"]');
+        const publisherFilter = document.querySelector<HTMLSelectElement>('[data-testid="publisher-filter"]');
+        const status = document.querySelector<HTMLElement>('[data-testid="filter-status"]');
+        const emptyState = document.querySelector<HTMLElement>('[data-testid="filtered-empty-state"]');
+        const cards = [...document.querySelectorAll<HTMLElement>('[data-testid="game-card"]')];
+
+        const applyFilters = () => {
+          if (!categoryFilter || !publisherFilter || !status || !emptyState) {
+            return;
+          }
+
+          const selectedCategories = new Set(
+            [...categoryFilter.selectedOptions].map((option) => option.value),
+          );
+          const selectedPublisher = publisherFilter.value;
+          let visibleCount = 0;
+
+          cards.forEach((card) => {
+            const categoryMatches =
+              selectedCategories.size === 0 ||
+              selectedCategories.has(card.dataset.categoryId ?? '');
+            const publisherMatches =
+              selectedPublisher === '' || selectedPublisher === card.dataset.publisherId;
+            const visible = categoryMatches && publisherMatches;
+            card.classList.toggle('hidden', !visible);
+            visibleCount += visible ? 1 : 0;
+          });
+
+          emptyState.classList.toggle('hidden', visibleCount > 0);
+          status.textContent = `${visibleCount} game${visibleCount === 1 ? '' : 's'} shown`;
+        };
+
+        form?.addEventListener('change', applyFilters);
+        form?.addEventListener('reset', () => requestAnimationFrame(applyFilters));
+        applyFilters();
+      </script>
     </div>
   </div>
 </Layout>
